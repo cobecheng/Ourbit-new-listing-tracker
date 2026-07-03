@@ -22,7 +22,6 @@ def make_config(db_path: Path) -> tracker.Config:
         telegram_disable_web_page_preview=False,
         telegram_disable_notification=False,
         telegram_send_delay_seconds=0,
-        include_details=True,
         title_include_regex=tracker.DEFAULT_INCLUDE_REGEX,
         title_exclude_regex=tracker.DEFAULT_EXCLUDE_REGEX,
     )
@@ -69,7 +68,6 @@ class TrackerTests(unittest.TestCase):
             result = tracker.run_check(
                 config,
                 article_fetcher=fetcher,
-                detail_fetcher=lambda _config, _article: [],
                 telegram_sender=lambda _config, message: sends.append(message),
             )
 
@@ -88,7 +86,6 @@ class TrackerTests(unittest.TestCase):
                 article_fetcher=lambda _config: [
                     article(1, "Ourbit Will List Token A (AAA) in the Innovation Zone", "2026-07-01T00:00:00Z")
                 ],
-                detail_fetcher=lambda _config, _article: [],
                 telegram_sender=lambda _config, message: sends.append(message),
             )
 
@@ -103,7 +100,6 @@ class TrackerTests(unittest.TestCase):
             result = tracker.run_check(
                 config,
                 article_fetcher=fetcher,
-                detail_fetcher=lambda _config, _article: ["Trading pairs: BBB/USDT"],
                 telegram_sender=lambda _config, message: sends.append(message),
             )
 
@@ -112,7 +108,12 @@ class TrackerTests(unittest.TestCase):
             self.assertEqual(result.skipped, 1)
             self.assertIn("Token B", sends[0])
             self.assertIn("Token C", sends[1])
-            self.assertIn("Trading pairs: BBB/USDT", sends[0])
+            self.assertNotIn("Trading pairs", sends[0])
+            self.assertNotIn("Published:", sends[0])
+            self.assertRegex(
+                sends[0],
+                r"^<b>Ourbit Will List Token B \(BBB\) in the Innovation Zone</b>\n\nhttps://www\.ourbit\.com/support/articles/2$",
+            )
 
     def test_dry_run_does_not_write_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,7 +128,6 @@ class TrackerTests(unittest.TestCase):
                 article_fetcher=lambda _config: [
                     article(1, "Ourbit Will List Token A (AAA) in the Innovation Zone", "2026-07-01T00:00:00Z")
                 ],
-                detail_fetcher=lambda _config, _article: [],
                 output=out,
             )
 

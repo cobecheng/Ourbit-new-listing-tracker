@@ -14,12 +14,6 @@ loads article rows from this JSON endpoint:
 https://www.ourbit.com/help/announce/api/en-US/section/15425930840735/articles?page=1&perPage=30
 ```
 
-Article details come from:
-
-```text
-https://www.ourbit.com/help/announce/api/en-US/article/{article_id}
-```
-
 ## Behavior
 
 - First run seeds the current fetched announcements as already seen, so old listings are not sent to Telegram.
@@ -33,15 +27,7 @@ https://www.ourbit.com/help/announce/api/en-US/article/{article_id}
 Telegram messages look like this:
 
 ```text
-New Ourbit listing announcement
-
 Ourbit Will List DYDX (DYDX) in the Innovation Zone
-Published: 2026-07-03 08:40:23 UTC
-
-Trading pairs: DYDX/USDT
-Deposit: 08:50, July 3 2026 (UTC)
-Withdrawal: 08:50, July 4 2026 (UTC)
-Trading for DYDX/USDT: 08:50, July 3 2026 (UTC)
 
 https://www.ourbit.com/support/articles/17827791513176
 ```
@@ -143,7 +129,6 @@ Useful knobs:
 ```text
 POLL_INTERVAL_SECONDS=60
 OURBIT_MAX_PAGES=2
-OURBIT_INCLUDE_DETAILS=true
 OURBIT_TITLE_INCLUDE_REGEX=\b(will\s+list|listed|new\s+listing)\b
 OURBIT_TITLE_EXCLUDE_REGEX=\b(delist|delisted|delisting)\b
 ```

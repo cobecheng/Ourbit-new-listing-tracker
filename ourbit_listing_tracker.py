@@ -19,9 +19,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -46,7 +45,6 @@ class Config:
     telegram_disable_web_page_preview: bool
     telegram_disable_notification: bool
     telegram_send_delay_seconds: float
-    include_details: bool
     title_include_regex: Optional[str]
     title_exclude_regex: Optional[str]
 
@@ -75,7 +73,6 @@ class Config:
             telegram_send_delay_seconds=get_float_env(
                 "TELEGRAM_SEND_DELAY_SECONDS", 0.5
             ),
-            include_details=get_bool_env("OURBIT_INCLUDE_DETAILS", True),
             title_include_regex=get_optional_env(
                 "OURBIT_TITLE_INCLUDE_REGEX", DEFAULT_INCLUDE_REGEX
             ),
@@ -102,33 +99,6 @@ class CheckResult:
     sent: int = 0
     would_send: int = 0
     skipped: int = 0
-
-
-class BodyTextParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: List[str] = []
-
-    def handle_starttag(self, tag: str, attrs: Sequence[tuple[str, Optional[str]]]) -> None:
-        if tag in {"br", "div", "p", "li", "hr"}:
-            self.parts.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"div", "p", "li"}:
-            self.parts.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if data:
-            self.parts.append(data)
-
-    def lines(self) -> List[str]:
-        text = "".join(self.parts)
-        output: List[str] = []
-        for raw_line in text.splitlines():
-            line = " ".join(raw_line.split())
-            if line:
-                output.append(line)
-        return output
 
 
 def get_env(name: str, default: str) -> str:
@@ -270,32 +240,6 @@ def fetch_articles(config: Config) -> List[Article]:
     return articles
 
 
-def fetch_article_detail_lines(config: Config, article: Article) -> List[str]:
-    url = f"{config.base_url}/help/announce/api/{config.locale}/article/{article.id}"
-    payload = open_json(url, config.request_timeout_seconds)
-    body = payload.get("data", {}).get("body", "")
-    if not isinstance(body, str):
-        return []
-    parser = BodyTextParser()
-    parser.feed(body)
-    return summarize_detail_lines(parser.lines())
-
-
-def summarize_detail_lines(lines: Iterable[str]) -> List[str]:
-    interesting = re.compile(
-        r"^(trading pairs?|deposit|withdrawal|trading for|spot trading|"
-        r"futures trading)\b",
-        re.IGNORECASE,
-    )
-    summary: List[str] = []
-    for line in lines:
-        if interesting.search(line):
-            summary.append(line)
-        if len(summary) >= 6:
-            break
-    return summary
-
-
 def connect_state(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
@@ -362,13 +306,6 @@ def parse_created_at(value: str) -> datetime:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
-def format_created_at(value: str) -> str:
-    parsed = parse_created_at(value)
-    if parsed == datetime.min.replace(tzinfo=timezone.utc):
-        return value
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-
 def article_matches_filters(config: Config, article: Article) -> bool:
     title = article.title
     if config.title_exclude_regex and re.search(
@@ -382,18 +319,8 @@ def article_matches_filters(config: Config, article: Article) -> bool:
     return True
 
 
-def build_message(article: Article, detail_lines: Sequence[str]) -> str:
-    lines = [
-        "<b>New Ourbit listing announcement</b>",
-        "",
-        f"<b>{html.escape(article.title)}</b>",
-        f"Published: {html.escape(format_created_at(article.created_at))}",
-    ]
-    if detail_lines:
-        lines.append("")
-        lines.extend(html.escape(line) for line in detail_lines)
-    lines.extend(["", html.escape(article.url)])
-    return "\n".join(lines)
+def build_message(article: Article) -> str:
+    return f"<b>{html.escape(article.title)}</b>\n\n{html.escape(article.url)}"
 
 
 def send_telegram_message(config: Config, text: str) -> None:
@@ -435,7 +362,6 @@ def send_telegram_message(config: Config, text: str) -> None:
 
 
 ArticleFetcher = Callable[[Config], List[Article]]
-DetailFetcher = Callable[[Config, Article], List[str]]
 TelegramSender = Callable[[Config, str], None]
 
 
@@ -445,7 +371,6 @@ def run_check(
     bootstrap: bool = False,
     send_existing: bool = False,
     article_fetcher: ArticleFetcher = fetch_articles,
-    detail_fetcher: DetailFetcher = fetch_article_detail_lines,
     telegram_sender: TelegramSender = send_telegram_message,
     output: Optional[object] = None,
 ) -> CheckResult:
@@ -471,13 +396,7 @@ def run_check(
                     mark_article(conn, article, "skipped_filter")
                 continue
 
-            detail_lines: List[str] = []
-            if config.include_details:
-                try:
-                    detail_lines = detail_fetcher(config, article)
-                except Exception:
-                    logging.exception("Could not fetch article detail for %s", article.id)
-            message = build_message(article, detail_lines)
+            message = build_message(article)
 
             if dry_run:
                 print("\n--- Telegram message preview ---", file=output)
